@@ -55,3 +55,5 @@ class VehicleApplication : public ns3::Application
     uint32_t port_;
     ns3::Ptr<ns3::Socket> socket_;
 };
+
+void TestMiracl();

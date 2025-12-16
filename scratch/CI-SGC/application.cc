@@ -1,5 +1,7 @@
 #include "application.h"
 
+#include "MIRACL-wrapper.h"
+
 #include <cstdint>
 #include <iostream>
 
@@ -147,6 +149,8 @@ VehicleApplication::~VehicleApplication()
 void
 VehicleApplication::StartApplication()
 {
+    TestMiracl();
+
     socket_ = ns3::Socket::CreateSocket(GetNode(), ns3::UdpSocketFactory::GetTypeId());
     socket_->SetAllowBroadcast(true);
     // cannot bind to local_addr_, that will cause singlecast-only
@@ -219,4 +223,31 @@ VehicleApplication::Install(ns3::Ptr<ns3::Node> node, uint32_t port)
     app->SetStopTime(ns3::Seconds(10));
     node->AddApplication(app);
     return app;
+}
+
+// MIRACL test
+void
+TestMiracl()
+{
+    miracl* mip = mirsys(100, 16);
+    mip->IOBASE = 16;
+
+    big a = mirvar(0);
+    big b = mirvar(0);
+    big c = mirvar(0);
+
+    cinstr(a, (char*)"123456789ABCDEF");
+    cinstr(b, (char*)"FEDCBA987654321");
+
+    multiply(a, b, c);
+
+    char buf[2048];
+    cotstr(c, buf);
+
+    std::cout << "[MIRACL TEST] a * b = " << buf << std::endl;
+
+    mirkill(a);
+    mirkill(b);
+    mirkill(c);
+    mirexit();
 }

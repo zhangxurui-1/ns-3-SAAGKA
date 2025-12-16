@@ -1,0 +1,9 @@
+[submodule "contrib/miracle"]
+	path = contrib/miracle
+	url = https://github.com/miracl/MIRACL.git
+[submodule "MIRACL"]
+	path = MIRACL
+	url = https://github.com/miracl/MIRACL.git
+[submodule "contrib/MIRACL"]
+	path = contrib/MIRACL
+	url = https://github.com/miracl/MIRACL.git

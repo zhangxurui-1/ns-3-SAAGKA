@@ -1,13 +1,17 @@
+#include "crypto/agka.h"
+#include "metric.h"
 #include "utils.h"
 
 #include "ns3/application.h"
 #include "ns3/ipv4.h"
 #include "ns3/log.h"
 #include "ns3/simulator.h"
+#include "ns3/singleton.h"
 #include "ns3/socket.h"
 #include "ns3/udp-socket-factory.h"
 
 #include <cstdint>
+#include <memory>
 
 // NS_LOG_COMPONENT_DEFINE("CI-SGC App");
 
@@ -54,6 +58,5 @@ class VehicleApplication : public ns3::Application
     ns3::Address broadcast_addr_; // ip+port
     uint32_t port_;
     ns3::Ptr<ns3::Socket> socket_;
+    std::shared_ptr<SAAGKA> protocol_;
 };
-
-void TestMiracl();

@@ -44,7 +44,12 @@ main(int argc, char* argv[])
     cmd.AddValue("nVehicle", "Number of vehicle nodes", nVehicle);
     cmd.Parse(argc, argv);
 
-    NS_LOG_INFO("msg");
+    auto metric = ns3::Singleton<Metric>::Get();
+    metric->Emit(EmitType::kAlgSetup, "Setup");
+    SAAGKA::Setup(128, 30);
+    metric->Emit(EmitType::kAlgSetup, "Setup");
+    NS_LOG_INFO("Global Setup Done. Time cost=" << metric->GetStat(EmitType::kAlgSetup, "Setup"));
+
     NodeContainer rsu = CreateRSUNode();
     std::cout << "RSU node created." << std::endl;
     NodeContainer vehicles = CreateVehicleNodes(nVehicle);

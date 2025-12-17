@@ -1,0 +1,7 @@
+CompileFlags:
+  Add:
+    - -I/Users/zxr/workspace/ns-3-dev/contrib/MIRACL/include
+    - -I/Users/zxr/workspace/ns-3-dev/contrib/MIRACL/source
+    - -I/Users/zxr/workspace/ns-3-dev/contrib/MIRACL/source/curve/pairing
+    - -DMR_PAIRING_SSP
+    - -DDAES_SECURITY=128

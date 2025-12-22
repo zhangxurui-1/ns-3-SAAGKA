@@ -1,5 +1,8 @@
 #include "application.h"
 
+#include "message/message.h"
+#include "utils.h"
+
 // #include "MIRACL-wrapper.h"
 
 #include <cstdint>
@@ -39,7 +42,7 @@ RsuApplication::StartApplication()
 
     socket_ = ns3::Socket::CreateSocket(GetNode(), ns3::UdpSocketFactory::GetTypeId());
     socket_->SetAllowBroadcast(true);
-    socket_->Bind(local_addr_);
+    socket_->Bind(ns3::InetSocketAddress(ns3::Ipv4Address::GetAny(), port_));
 
     SendHeartbeat();
 }
@@ -53,12 +56,18 @@ RsuApplication::StopApplication()
 void
 RsuApplication::SendHeartbeat()
 {
-    const char* msg = "Hello from RSU";
-    ns3::Ptr<ns3::Packet> packet =
-        ns3::Create<ns3::Packet>(reinterpret_cast<const uint8_t*>(msg), std::strlen(msg));
+    auto heartbeat = sgc_proto_->HeartbeatMsg();
+    NS_LOG_INFO("[" << ns3::Simulator::Now().As(ns3::Time::MS)
+                    << "]\t RSU generated raw heartbeat message");
+
+    std::vector<uint8_t> bytes;
+    ByteWriter bw(bytes);
+    heartbeat->Serialize(bw);
+
+    ns3::Ptr<ns3::Packet> packet = ns3::Create<ns3::Packet>(bytes.data(), bytes.size());
 
     NS_LOG_INFO("[" << ns3::Simulator::Now().As(ns3::Time::MS) << "]\t RSU send to "
-                    << AddressToString(broadcast_addr_) << " Content=" << msg);
+                    << AddressToString(broadcast_addr_) << " Packet size=" << packet->GetSize());
 
     socket_->SendTo(packet, 0, broadcast_addr_);
     socket_->SetRecvCallback(ns3::MakeCallback(&RsuApplication::HandleRecv, this));
@@ -104,6 +113,7 @@ RsuApplication::Install(ns3::Ptr<ns3::Node> node, uint32_t port)
     app->local_addr_ = local_addr;
     app->broadcast_addr_ = broadcast_addr;
     app->port_ = port;
+    app->sgc_proto_ = std::make_shared<SGC>(SGC::Role::kRoleRSU);
 
     NS_LOG_INFO("RsuApplication install done. (local address: "
                 << local_addr.GetIpv4() << ":" << local_addr.GetPort() << ", broadcast address: "
@@ -125,14 +135,31 @@ RsuApplication::HandleRecv(ns3::Ptr<ns3::Socket> socket)
         std::vector<uint8_t> buffer(size);
         packet->CopyData(buffer.data(), size);
 
-        SAAGKA::KAMaterial kam;
-        SAAGKA::Deserialize(buffer.data(), buffer.size(), kam);
-
-        std::string msg(buffer.begin(), buffer.end());
         NS_LOG_INFO("[" << ns3::Simulator::Now().As(ns3::Time::MS) << "]\t RSU ("
                         << AddressToString(local_addr_) << ") received from "
-                        << AddressToString(from) << "\t Packet size=" << size
-                        << " (bytes), Content=" << kam);
+                        << AddressToString(from) << "\t Packet size=" << size << " (bytes)");
+
+        auto resps = sgc_proto_->HandleMsg(buffer.data(), buffer.size());
+        // SAAGKA::KAMaterial kam;
+        // SAAGKA::Deserialize(buffer.data(), buffer.size(), kam);
+        // std::string msg(buffer.begin(), buffer.end());
+
+        for (const auto& resp : resps)
+        {
+            if (resp)
+            {
+                std::vector<uint8_t> resp_bytes;
+                ByteWriter bw(resp_bytes);
+                resp->Serialize(bw);
+
+                NS_LOG_INFO("[" << ns3::Simulator::Now().As(ns3::Time::MS) << "]\t RSU send to "
+                                << AddressToString(broadcast_addr_)
+                                << " Packet size=" << packet->GetSize());
+                ns3::Ptr<ns3::Packet> resp_packet =
+                    ns3::Create<ns3::Packet>(resp_bytes.data(), resp_bytes.size());
+                socket_->SendTo(resp_packet, 0, broadcast_addr_);
+            }
+        }
     }
 }
 
@@ -160,25 +187,11 @@ VehicleApplication::~VehicleApplication()
 void
 VehicleApplication::StartApplication()
 {
-    auto metric = ns3::Singleton<Metric>::Get();
-    std::string metric_key = "KeyGen-" + AddressToString(local_addr_);
-    metric->Emit(EmitType::kAlgKeyGen, metric_key);
-
-    protocol_->KeyGen();
-
-    metric->Emit(EmitType::kAlgKeyGen, metric_key);
-    ns3::Time keygen_exec_time =
-        Metric::ChronoToSimulatorTimeMS(metric->GetStat(EmitType::kAlgKeyGen, metric_key));
-
-    ns3::Simulator::Schedule(keygen_exec_time, [&]() {
-        NS_LOG_INFO("[" << ns3::Simulator::Now().As(ns3::Time::MS) << "]\t Vehicle ("
-                        << AddressToString(local_addr_) << ") KeyGen Done.");
-        socket_ = ns3::Socket::CreateSocket(GetNode(), ns3::UdpSocketFactory::GetTypeId());
-        socket_->SetAllowBroadcast(true);
-        // cannot bind to local_addr_, that will cause singlecast-only
-        socket_->Bind(ns3::InetSocketAddress(ns3::Ipv4Address::GetAny(), port_));
-        socket_->SetRecvCallback(ns3::MakeCallback(&VehicleApplication::HandleRecv, this));
-    });
+    socket_ = ns3::Socket::CreateSocket(GetNode(), ns3::UdpSocketFactory::GetTypeId());
+    socket_->SetAllowBroadcast(true);
+    // cannot bind to local_addr_, that will cause singlecast-only
+    socket_->Bind(ns3::InetSocketAddress(ns3::Ipv4Address::GetAny(), port_));
+    socket_->SetRecvCallback(ns3::MakeCallback(&VehicleApplication::HandleRecv, this));
 }
 
 void
@@ -196,24 +209,32 @@ VehicleApplication::HandleRecv(ns3::Ptr<ns3::Socket> socket)
         uint32_t size = packet->GetSize();
         std::vector<uint8_t> buffer(size);
         packet->CopyData(buffer.data(), size);
-        std::string msg(buffer.begin(), buffer.end());
         NS_LOG_INFO("[" << ns3::Simulator::Now().As(ns3::Time::MS) << "]\t Vehicle ("
                         << AddressToString(local_addr_) << ") received from "
-                        << AddressToString(from) << " Content=" << msg);
+                        << AddressToString(from) << " Packet size=" << packet->GetSize());
 
-        // const char* resp_str = "ACK";
+        auto resps = sgc_proto_->HandleMsg(buffer.data(), buffer.size());
 
-        std::string sid = "test-sid";
-        SAAGKA::KAMaterial kam =
-            protocol_->MessageGen(std::vector<uint8_t>(sid.begin(), sid.end()), 0);
+        for (const auto& resp : resps)
+        {
+            if (resp)
+            {
+                std::vector<uint8_t> resp_bytes;
+                ByteWriter bw(resp_bytes);
+                resp->Serialize(bw);
 
-        std::vector<uint8_t> bytes = SAAGKA::Serialize(kam);
+                ns3::Ptr<ns3::Packet> resp =
+                    ns3::Create<ns3::Packet>(resp_bytes.data(), resp_bytes.size());
+                // socket_->SendTo(resp, 0, from);
 
-        ns3::Ptr<ns3::Packet> resp = ns3::Create<ns3::Packet>(bytes.data(), bytes.size());
-        socket_->SendTo(resp, 0, from);
-        NS_LOG_INFO("[" << ns3::Simulator::Now().As(ns3::Time::MS) << "]\t Vehicle ("
-                        << AddressToString(local_addr_) << ") send to " << AddressToString(from)
-                        << "\t Packet size=" << bytes.size() << " (bytes), Content=" << kam);
+                socket->SendTo(resp, 0, broadcast_addr_);
+
+                NS_LOG_INFO("[" << ns3::Simulator::Now().As(ns3::Time::MS) << "]\t Vehicle-"
+                                << sgc_proto_->GetPid() << " send to "
+                                << AddressToString(broadcast_addr_)
+                                << "\t Packet size=" << resp_bytes.size() << " (bytes)");
+            }
+        }
     }
 }
 
@@ -242,21 +263,19 @@ VehicleApplication::Install(ns3::Ptr<ns3::Node> node, uint32_t port)
     app->local_addr_ = local_addr;
     app->broadcast_addr_ = broadcast_addr;
     app->port_ = port;
-    app->protocol_ = std::make_shared<SAAGKA>();
+    app->sgc_proto_ = std::make_shared<SGC>(SGC::Role::kRoleVehicle);
 
     // Generate key when installation. That is not standard but suffice for our evaluation.
     auto metric = ns3::Singleton<Metric>::Get();
     std::string metric_key = "KeyGen-" + AddressToString(app->local_addr_);
     metric->Emit(EmitType::kAlgKeyGen, metric_key);
-    app->protocol_->KeyGen();
+    app->sgc_proto_->Enroll();
     metric->Emit(EmitType::kAlgKeyGen, metric_key);
 
     NS_LOG_INFO("VehicleApplication install done, KeyGen time-cost:"
                 << metric->GetStat(EmitType::kAlgKeyGen, metric_key)
                 << "(local address: " << AddressToString(app->local_addr_)
                 << ", broadcast address: " << AddressToString(app->broadcast_addr_) << ")");
-    NS_LOG_DEBUG("sk=" << app->protocol_->GetPrivateKey()
-                       << ", pk=" << app->protocol_->GetPublicKey());
 
     app->SetStartTime(ns3::Seconds(0));
     app->SetStopTime(ns3::Seconds(10));

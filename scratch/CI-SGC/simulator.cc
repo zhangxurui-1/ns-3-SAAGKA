@@ -39,7 +39,7 @@ main(int argc, char* argv[])
     LogComponentEnable("CI-SGC-Application", LOG_LEVEL_INFO);
 
     NS_LOG_INFO("Start CI-SGC Simulation");
-    uint32_t nVehicle = 4;
+    uint32_t nVehicle = 2;
     CommandLine cmd(__FILE__);
     cmd.AddValue("nVehicle", "Number of vehicle nodes", nVehicle);
     cmd.Parse(argc, argv);

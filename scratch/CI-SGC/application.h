@@ -1,5 +1,8 @@
+#pragma once
+
 #include "crypto/agka.h"
 #include "metric.h"
+#include "sgc.h"
 #include "utils.h"
 
 #include "ns3/application.h"
@@ -38,6 +41,7 @@ class RsuApplication : public ns3::Application
     ns3::Address local_addr_;     // ip+port
     uint32_t port_;
     ns3::Time heartbeat_interval_{ns3::Seconds(1)};
+    std::shared_ptr<SGC> sgc_proto_;
 };
 
 class VehicleApplication : public ns3::Application
@@ -58,5 +62,5 @@ class VehicleApplication : public ns3::Application
     ns3::Address broadcast_addr_; // ip+port
     uint32_t port_;
     ns3::Ptr<ns3::Socket> socket_;
-    std::shared_ptr<SAAGKA> protocol_;
+    std::shared_ptr<SGC> sgc_proto_;
 };

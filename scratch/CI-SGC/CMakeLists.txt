@@ -12,11 +12,18 @@ build_exec(
     SOURCE_FILES
         crypto/agka.cc
         crypto/utils.cc
+        crypto/pki.cc
+        # crypto/debug.cc
+        message/message.cc
+        message/bytewriter.cc
+        message/bytereader.cc
+        message/header.cc
         metric.cc
         simulator.cc
         application.cc
         vehicle.cc
         utils.cc
+        sgc.cc
     LIBRARIES_TO_LINK
         ${ns3-libs}
         ${ns3-contrib-libs}

@@ -1,15 +1,19 @@
 #include "agka.h"
 
+#include "../message/bytewriter.h"
+#include "../utils.h"
+#include "pki.h"
+#include "utils.h"
+
+#include "ns3/singleton.h"
+
+#include <algorithm>
 #include <big.h>
 #include <cstddef>
 #include <cstdint>
 #include <ecn.h>
-#include <iostream>
 #include <miracl.h>
-#include <ostream>
 #include <pairing_1.h>
-#include <sstream>
-#include <type_traits>
 #include <vector>
 #include <zzn.h>
 
@@ -27,13 +31,14 @@ SAAGKA::GetPrivateKey()
 
 bool SAAGKA::is_setup_ = false;
 std::shared_ptr<SAAGKA::PublicParameter> SAAGKA::pp_ = nullptr;
+uint32_t SAAGKA::pk_counter_ = 0;
 
 void
 SAAGKA::KeyGen()
 {
     if (!is_setup_)
     {
-        // std::cerr << "Scheme not setup, KeyGen failed" << std::endl;
+        FATAL_ERROR("KeyGen failed: not setup yet");
         return;
     }
     auto pfc = pp_->pfc;
@@ -42,44 +47,116 @@ SAAGKA::KeyGen()
     pk_.y1 = pfc->mult(pp_->generator_1, sk_.x1);
     pk_.y2 = pfc->mult(pp_->generator_1, sk_.x2);
     is_key_used_ = false;
+    pk_id_ = pk_counter_;
+    ns3::Singleton<PKI>::Get()->Upload(pk_id_, pk_);
+    pk_counter_++;
+}
+
+void
+SAAGKA::UpdateKey(const KAMaterial& kam)
+{
+    auto& matrix = pp_->matrices[kam.size_param];
+    auto pfc = pp_->pfc;
+    auto scale = matrix.size();
+
+    auto pk = ns3::Singleton<PKI>::Get()->Get(kam.pk_id);
+    auto pseudo_pk = SAAGKA::PublicKey{matrix[kam.pos][scale + 1], matrix[kam.pos][scale + 2]};
+    Big v = SAAGKA::HashAnyToBig(kam.sid, pk, kam.u);
+    Big pseudo_v = SAAGKA::HashAnyToBig(std::vector<uint8_t>(), pseudo_pk, matrix[kam.pos][scale]);
+    G1 tmp = pk.y1 + pfc->mult(pk.y2, v) + (-pseudo_pk.y1) + (-pfc->mult(pseudo_pk.y2, pseudo_v));
+
+    GT delta_mu = pfc->pairing(tmp, pp_->g0);
+    G1 delta_lamda = kam.u + (-matrix[kam.pos][scale]);
+
+    ek_.lambda = ek_.lambda + delta_lamda;
+    ek_.mu = ek_.mu * delta_mu;
+
+    dk_ = dk_ + (-matrix[kam.pos][pos_]) + kam.z[pos_];
 }
 
 SAAGKA::KAMaterial
-SAAGKA::MessageGen(std::vector<uint8_t> sid, int i)
+SAAGKA::MessageGen(const std::vector<uint8_t>& sid,
+                   const EncryptionKey& cur_ek,
+                   int size_param,
+                   int pos)
 {
     if (is_key_used_)
     {
         KeyGen();
     }
-    int l = ParseSid(sid);
+
     auto pfc = pp_->pfc;
     Big w;
     pfc->random(w);
-    KAMaterial kam;
-    kam.size_param = l;
-    kam.pos = i;
-    kam.u = pfc->mult(pp_->generator_1, w);
 
-    HashInputItem hit{sid, pk_, kam.u};
-    Big v = HashAnyToBig(hit);
-    for (int j = 0; j < pp_->matrices[l].size(); ++j)
+    KAMaterial kam;
+    kam.pk_id = pk_id_;
+    kam.size_param = size_param;
+    kam.pos = pos;
+    kam.u = pfc->mult(pp_->generator_1, w);
+    kam.sid = std::vector<uint8_t>(sid);
+
+    Big v = HashAnyToBig(kam.sid, pk_, kam.u);
+    for (int j = 0; j < pp_->matrices[size_param].size(); ++j)
     {
-        G1 elem = pfc->mult(pp_->generator_1, sk_.x1 + (v * sk_.x2)) + pfc->mult(pp_->h[j], w);
+        G1 elem = pfc->mult(pp_->g0, sk_.x1 + (v * sk_.x2)) + pfc->mult(pp_->h[j], w);
         kam.z.push_back(elem);
-        if (j == i)
+        if (j == pos)
         {
-            reserved_ = elem;
+            reserved_z_ = elem;
         }
     }
+
+    is_key_used_ = true;
+    pending_pos_ = pos;
+
+    // set pending ek
+    auto& matrix = pp_->matrices[size_param];
+    auto scale = matrix.size();
+
+    auto pseudo_pk = SAAGKA::PublicKey{matrix[pos][scale + 1], matrix[pos][scale + 2]};
+    Big pseudo_v = SAAGKA::HashAnyToBig(std::vector<uint8_t>(), pseudo_pk, matrix[pos][scale]);
+    G1 tmp = pk_.y1 + pfc->mult(pk_.y2, v) + (-pseudo_pk.y1) + (-pfc->mult(pseudo_pk.y2, pseudo_v));
+
+    GT delta_mu = pfc->pairing(tmp, pp_->g0);
+    G1 delta_lamda = kam.u + (-matrix[pos][scale]);
+
+    pending_ek_.lambda = cur_ek.lambda + delta_lamda;
+    pending_ek_.mu = cur_ek.mu * delta_mu;
+    sid_ = sid;
 
     return kam;
 }
 
-// TODO: implement this function
-int
-SAAGKA::ParseSid(std::vector<uint8_t> sid)
+bool
+SAAGKA::AsymKeyDerive(const std::vector<uint8_t>& sid,
+                      uint32_t pos,
+                      const G1& d,
+                      const EncryptionKey& expected_ek)
 {
-    return 0;
+    if (!IsEqual(sid, sid_) || pending_pos_ != pos)
+    {
+        INFO("AsymKeyDerive failed: sid or position not match");
+        return false;
+    }
+
+    // INFO("pending_ek_=" << pending_ek_);
+    // INFO("expected_ek_=" << expected_ek);
+
+    if (pending_ek_ != expected_ek)
+    {
+        WARN("AsymKeyDerive failed: encryption key not expected");
+        return false;
+    }
+
+    // finish aysmmetric key agreement
+    dk_ = d + reserved_z_;
+    ek_ = pending_ek_;
+    pos_ = pending_pos_;
+
+    return true;
+    // INFO("Asymmetric key derived, Group-" << ParseGroupSeqFromSid(sid) << ", member-" << pos_
+    //                                       << ", ek=" << ek_ << ", dk=" << ToString(dk_));
 }
 
 SAAGKA::Matrix<G1>
@@ -98,18 +175,14 @@ SAAGKA::GenOneMatrix(int size_param)
         G1 y2 = pfc->mult(pp_->generator_1, x2);
         G1 u = pfc->mult(pp_->generator_1, w);
 
-        static std::string s = "SAAGKA::Setup";
-        static const std::vector<uint8_t> INIT_MSG(s.begin(), s.end());
-
         for (; j < size_param; ++j)
         {
             if (i == j)
             {
                 continue;
             }
-            HashInputItem input{INIT_MSG, PublicKey{y1, y2}, u};
-            Big v = HashAnyToBig(input);
-            m[i][j] = pfc->mult(pp_->h[j], w) + pfc->mult(pp_->generator_1, x1 + (x2 * v));
+            Big v = HashAnyToBig(std::vector<uint8_t>(), PublicKey{y1, y2}, u);
+            m[i][j] = pfc->mult(pp_->h[j], w) + pfc->mult(pp_->g0, x1 + (x2 * v));
         }
         m[i][j] = u;
         ++j;
@@ -171,19 +244,15 @@ SAAGKA::GetPublicParameter()
 }
 
 Big
-SAAGKA::HashAnyToBig(const HashInputItem& item)
+SAAGKA::HashAnyToBig(const std::vector<uint8_t>& m, const PublicKey& pk, const G1& elem)
 {
     std::vector<uint8_t> buf;
-    buf.insert(buf.end(), item.m.begin(), item.m.end());
+    ByteWriter bw(buf);
 
-    auto append_g1 = [&](const G1& elem) {
-        auto bytes = SerializeG1(elem);
-        buf.insert(buf.end(), bytes.begin(), bytes.end());
-    };
-
-    append_g1(item.pk.y1);
-    append_g1(item.pk.y2);
-    append_g1(item.u);
+    bw.write(m);
+    bw.write(pk.y1);
+    bw.write(pk.y2);
+    bw.write(elem);
 
     char hash_res[32];
     Sha256(reinterpret_cast<const char*>(buf.data()), buf.size(), hash_res);
@@ -199,120 +268,109 @@ SAAGKA::HashAnyToBig(const HashInputItem& item)
     return x;
 }
 
-// NOTE: Serialize does not encode z_{ii}, which the node should keep secret.
-std::vector<uint8_t>
-SAAGKA::Serialize(const KAMaterial& kam)
+bool
+SAAGKA::CheckValid(const KAMaterial& kam)
 {
-    Header header(kam);
-    auto bytes = header.Serialize();
+    auto pk = ns3::Singleton<PKI>::Get()->Get(kam.pk_id);
+    std::vector<Big> r(pp_->matrices[kam.size_param].size());
 
-    auto ubytes = SerializeG1(kam.u);
-    bytes.insert(bytes.end(), ubytes.begin(), ubytes.end());
-    for (int i = 0; i < kam.z.size(); i++)
+    Big r_sum = 0;
+    G1 left_G1;
+    G1 h_prod_G1;
+    left_G1.g.clear();
+    h_prod_G1.g.clear();
+    auto pfc = pp_->pfc;
+
+    for (int i = 0; i < r.size(); i++)
     {
-        if (i == kam.pos)
+        pfc->random(r[i]);
+
+        if (i != kam.pos)
         {
-            continue;
+            r_sum += r[i];
+            left_G1 = left_G1 + pfc->mult(kam.z[i], r[i]);
+            h_prod_G1 = h_prod_G1 + pfc->mult(pp_->h[i], r[i]);
         }
-        auto tmp = SerializeG1(kam.z[i]);
-        bytes.insert(bytes.end(), tmp.begin(), tmp.end());
     }
-    return bytes;
+    GT left_GT = pfc->pairing(left_G1, pp_->generator_1);
+
+    // INFO("SAAGKA::CheckValid, left_GT=" << ToString(left_GT));
+
+    Big v = HashAnyToBig(kam.sid, pk, kam.u);
+    // INFO("SAAGKA::CheckValid, v=" << v);
+
+    GT right1_GT = pfc->pairing(pk.y1 + pfc->mult(pk.y2, v), pfc->mult(pp_->g0, r_sum));
+    GT right2_GT = pfc->pairing(h_prod_G1, kam.u);
+    GT right_GT = right1_GT * right2_GT;
+    // INFO("SAAGKA::CheckValid, right_GT=" << ToString(right_GT));
+
+    return left_GT == right_GT;
 }
 
-void
-SAAGKA::Deserialize(const uint8_t* bytes, int len, KAMaterial& kam)
+SAAGKA::Ciphertext
+SAAGKA::Encrypt(const std::vector<uint8_t>& msg, std::vector<EncryptionKey>& eks)
 {
-    if (len < 4)
+    Ciphertext ct;
+    Big omega;
+    auto pfc = pp_->pfc;
+    pfc->random(omega);
+
+    ct.len_ = msg.size();
+    ct.c1_ = pfc->mult(pp_->generator_1, omega);
+    ct.c2_.resize(eks.size());
+    ct.c3_.resize(eks.size());
+
+    for (size_t i = 0; i < eks.size(); ++i)
     {
-        return;
+        ct.c2_[i] = pfc->mult(eks[i].lambda, omega);
+
+        GT tmp = pfc->power(eks[i].mu, omega);
+        ct.c3_[i] = BytesXOR(msg, HashGTToBytes(tmp, msg.size()));
     }
 
-    Header header;
-    header.Deserialize(bytes, 4);
-    if (header.type != MsgType::kJoin)
-    {
-        return;
-    }
-
-    kam.size_param = header.info[0];
-    kam.pos = header.info[1];
-    auto p = bytes + 4;
-    auto end = bytes + len;
-    if (p + 4 > end)
-    {
-        return;
-    }
-    int lu = ((p[0] << 8) | p[1]) + ((p[2] << 8) | p[3]) + 4;
-    if ((p + lu) <= end)
-    {
-        kam.u = DeserializeG1(p, lu);
-    }
-    p += lu;
-
-    kam.z.resize(pp_->matrices[kam.size_param].size());
-    for (int i = 0; i < kam.z.size(); i++)
-    {
-        if (i == kam.pos)
-        {
-            continue;
-        }
-
-        if (p + 4 > end)
-        {
-            break;
-        }
-        int lz = ((p[0] << 8) | p[1]) + ((p[2] << 8) | p[3]) + 4;
-        if ((p + lz) > end)
-        {
-            break;
-        }
-        kam.z[i] = DeserializeG1(p, lz);
-        p += lz;
-    }
-}
-
-std::string
-SAAGKA::G1ToString(const G1& elem)
-{
-    ZZn coordinate_a, coordinate_b;
-    extract(const_cast<ECn&>(elem.g), coordinate_a, coordinate_b);
-
-    std::stringstream ss;
-    ss << "(" << coordinate_a << ", " << coordinate_b << ")";
-    return ss.str();
-}
-
-// Header
-SAAGKA::Header::Header(const KAMaterial& kam)
-    : type(MsgType::kJoin)
-{
-    info[0] = static_cast<uint8_t>(kam.size_param);
-    info[1] = static_cast<uint8_t>(kam.pos);
-    info[2] = 0;
+    return ct;
 }
 
 std::vector<uint8_t>
-SAAGKA::Header::Serialize() const
+SAAGKA::Decrypt(const Ciphertext& ct, uint32_t index)
 {
-    std::vector<uint8_t> bytes(4);
-    bytes[0] = static_cast<uint8_t>(type);
-    for (int i = 0; i < 3; i++)
-    {
-        bytes[i + 1] = info[i];
-    }
-    return bytes;
+    auto pfc = pp_->pfc;
+
+    GT gt1 = pfc->pairing(dk_, ct.c1_);
+    GT gt2 = pfc->pairing(pp_->h[pos_], ct.c2_[index]);
+    return BytesXOR(ct.c3_[index], HashGTToBytes(gt1 / gt2, ct.c3_[index].size()));
 }
 
-void
-SAAGKA::Header::Deserialize(const uint8_t* bytes, int len)
+std::vector<uint8_t>
+SAAGKA::HashGTToBytes(const GT& gt, uint32_t length)
 {
-    if (len < 4)
+    std::vector<uint8_t> input;
+    uint32_t nonce = 0;
+    ByteWriter bw(input);
+    bw.write(gt);
+    bw.write(nonce);
+
+    std::vector<uint8_t> res(0);
+    res.reserve(length);
+
+    char hash_res[32];
+
+    while (res.size() < length)
     {
-        return;
+        bw.patch_u32(bw.position() - sizeof(uint32_t), nonce);
+        nonce++;
+
+        Sha256(reinterpret_cast<const char*>(input.data()), input.size(), hash_res);
+
+        int delta_length = std::min((int)(length - res.size()), 32);
+        res.insert(res.end(), hash_res, hash_res + delta_length);
     }
-    type = static_cast<MsgType>(bytes[0]);
-    info[0] = bytes[1];
-    info[1] = bytes[2];
-    info[2] = 0;
+
+    return res;
+}
+
+SAAGKA::EncryptionKey
+SAAGKA::GetEncryptionKey()
+{
+    return ek_;
 }

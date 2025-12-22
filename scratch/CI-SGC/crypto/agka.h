@@ -1,3 +1,5 @@
+#pragma once
+
 #include "MIRACL-wrapper.h"
 #include "utils.h"
 
@@ -6,15 +8,6 @@
 #include <memory>
 #include <ostream>
 #include <vector>
-
-enum class MsgType : uint8_t
-{
-    kHeartbeat,
-    kJoin,
-    kKeyDistribution,
-    kKeyUpdate,
-    kUnknown
-};
 
 class SAAGKA
 {
@@ -47,20 +40,6 @@ class SAAGKA
         }
     };
 
-    struct HashInputItem
-    {
-        std::vector<uint8_t> m;
-        PublicKey pk;
-        G1 u;
-
-        std::vector<uint8_t> Serialize() const
-        {
-            std::vector<uint8_t> buf = m;
-
-            return buf;
-        }
-    };
-
     template <typename T>
     using Matrix = std::vector<std::vector<T>>;
 
@@ -81,22 +60,24 @@ class SAAGKA
     // key agreement material, aka OTBMS signature
     struct KAMaterial
     {
-        int size_param;
-        int pos;
+        uint32_t pk_id;
+        uint32_t size_param;
+        uint32_t pos;
+        std::vector<uint8_t> sid;
         G1 u;
         std::vector<G1> z;
 
         friend ostream& operator<<(ostream& os, const KAMaterial& kam)
         {
-            os << "{ size_param=" << kam.size_param << ", pos=" << kam.pos
-               << ", u=" << G1ToString(kam.u) << ", z=(\n";
+            os << "{pk_id=" << kam.pk_id << ", size_param=" << kam.size_param << ", pos=" << kam.pos
+               << ", m=" << ToString(kam.sid) << ", u=" << ToString(kam.u) << ", z=(\n";
             for (int i = 0; i < kam.z.size(); i++)
             {
                 if (i == kam.pos)
                 {
                     continue;
                 }
-                os << "\t" << i << ":" << G1ToString(kam.z[i]) << ",\n";
+                os << "\t" << i << ":" << ToString(kam.z[i]) << ",\n";
             }
             os << ")}";
             return os;
@@ -107,51 +88,112 @@ class SAAGKA
     {
         G1 lambda;
         GT mu;
+
+        EncryptionKey(EncryptionKey& ek)
+            : lambda(ek.lambda),
+              mu(ek.mu)
+        {
+        }
+
+        EncryptionKey() = default;
+
+        EncryptionKey(const EncryptionKey& ek)
+            : lambda(ek.lambda),
+              mu(ek.mu)
+        {
+        }
+
+        friend ostream& operator<<(ostream& os, const EncryptionKey& ek)
+        {
+            os << "{lambda=" << ToString(ek.lambda) << ", mu=" << ToString(ek.mu) << "}";
+            return os;
+        }
     };
 
     typedef G1 DecryptionKey;
 
-    class Header
+    struct Ciphertext
     {
-      public:
-        MsgType type;
-        uint8_t info[3]; // this field is reused for various uses
+        uint32_t len_;
+        G1 c1_;
+        std::vector<G1> c2_;
+        std::vector<std::vector<uint8_t>> c3_;
 
-        Header(const KAMaterial& kam);
-        Header() = default;
-        std::vector<uint8_t> Serialize() const;
-        void Deserialize(const uint8_t* bytes, int len);
+        friend ostream& operator<<(ostream& os, const Ciphertext& ct)
+        {
+            os << "{len_=" << ct.len_ << ", c1_=" << ToString(ct.c1_) << ", c2_=(\n";
+            for (int i = 0; i < ct.c2_.size(); i++)
+            {
+                os << "\t" << i << ":" << ToString(ct.c2_[i]) << ",\n";
+            }
+            os << "), c3_=(\n";
+            for (int i = 0; i < ct.c3_.size(); i++)
+            {
+                os << "\t" << i << ":" << ToString(ct.c3_[i]) << ",\n";
+            }
+            os << ")}";
+            return os;
+        }
     };
 
     SAAGKA()
         : is_key_used_(false) {};
     virtual ~SAAGKA() {};
-    KAMaterial MessageGen(std::vector<uint8_t> sid, int i);
+    KAMaterial MessageGen(const std::vector<uint8_t>& sid,
+                          const EncryptionKey& cur_ek,
+                          int size_param,
+                          int pos);
+    bool AsymKeyDerive(const std::vector<uint8_t>& sid,
+                       uint32_t pos,
+                       const G1& d,
+                       const EncryptionKey& expected_ek);
     void KeyGen();
+    std::vector<uint8_t> Decrypt(const Ciphertext& ct, uint32_t index);
     PublicKey GetPublicKey();
     PrivateKey GetPrivateKey();
+    EncryptionKey GetEncryptionKey();
+    void UpdateKey(const KAMaterial& kam);
 
-    static Big HashAnyToBig(const HashInputItem& item);
-    static std::vector<uint8_t> HashGTToBytes(const GT& gt);
+    static Big HashAnyToBig(const std::vector<uint8_t>& m, const PublicKey& pk, const G1& elem);
+    static std::vector<uint8_t> HashGTToBytes(const GT& gt, uint32_t length);
+
     static void Setup(int security_level, int max_group_size);
     static std::shared_ptr<PublicParameter> GetPublicParameter();
     static bool IsSetup();
-    // ParseSid returns the underlying size parameter l
-    static int ParseSid(std::vector<uint8_t> sid);
-    static std::vector<uint8_t> Serialize(const KAMaterial& kam);
-    static void Deserialize(const uint8_t* bytes, int len, KAMaterial& kam);
-    static std::string G1ToString(const G1& elem);
+    static bool CheckValid(const KAMaterial& kam);
+    static Ciphertext Encrypt(const std::vector<uint8_t>& msg, std::vector<EncryptionKey>& eks);
     // TODO: Encrypt and Decrypt functions
 
   private:
     static bool is_setup_;
     static std::shared_ptr<PublicParameter> pp_;
+    static uint32_t pk_counter_;
+
     static Matrix<G1> GenOneMatrix(int size_param);
 
     bool is_key_used_;
     PrivateKey sk_;
     PublicKey pk_;
+    uint32_t pk_id_;
     EncryptionKey ek_;
     DecryptionKey dk_;
-    G1 reserved_;
+    std::vector<uint8_t> sid_;
+    uint32_t pos_;
+
+    // pending values for latest session
+    EncryptionKey pending_ek_;
+    uint32_t pending_pos_;
+    G1 reserved_z_;
 };
+
+inline bool
+operator==(const SAAGKA::EncryptionKey& a, const SAAGKA::EncryptionKey& b)
+{
+    return a.lambda == b.lambda && a.mu == b.mu;
+}
+
+inline bool
+operator!=(const SAAGKA::EncryptionKey& a, const SAAGKA::EncryptionKey& b)
+{
+    return !(a == b);
+}

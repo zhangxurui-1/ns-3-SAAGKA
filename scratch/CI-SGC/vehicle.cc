@@ -1,5 +1,7 @@
 #include "vehicle.h"
 
+#include "utils.h"
+
 #include <random>
 
 Vehicle::Vehicle()
@@ -95,7 +97,6 @@ CreateVehicleNodes(int nVehicle)
                 ns3::Vector(-dist_velocity(gen), 0.0, 0.0));
         }
     }
-
     ns3::InternetStackHelper stack;
     stack.Install(vehicles);
 

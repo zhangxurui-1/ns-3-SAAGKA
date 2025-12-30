@@ -174,3 +174,9 @@ ByteWriter::write(const std::string& str)
 {
     write(reinterpret_cast<const uint8_t*>(str.data()), str.size());
 }
+
+void
+ByteWriter::write(ns3::Time t)
+{
+    write(t.GetNanoSeconds());
+}

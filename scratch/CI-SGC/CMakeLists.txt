@@ -18,16 +18,18 @@ build_exec(
         message/bytewriter.cc
         message/bytereader.cc
         message/header.cc
+        sgc/sgc.cc
+        sgc/sgc-rsu.cc
+        sgc/sgc-vehicle.cc
         metric.cc
         simulator.cc
         application.cc
         vehicle.cc
         utils.cc
-        sgc.cc
     LIBRARIES_TO_LINK
         ${ns3-libs}
         ${ns3-contrib-libs}
-        MIRACL-core
+        # MIRACL-core
         MIRACL-cpp
     EXECUTABLE_DIRECTORY_PATH
         ${CMAKE_OUTPUT_DIRECTORY}/scratch/CI-SGC

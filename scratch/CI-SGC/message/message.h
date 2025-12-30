@@ -2,12 +2,12 @@
 
 #include "../crypto/agka.h"
 #include "../crypto/utils.h"
-#include "../sgc.h"
+#include "../sgc/sgc-vehicle.h"
+#include "../sgc/sgc.h"
 #include "bytereader.h"
 #include "bytewriter.h"
 
 #include <cstdint>
-#include <memory>
 #include <ostream>
 #include <vector>
 
@@ -36,12 +36,12 @@ class Heartbeat : public SGCMessage
 class HeartbeatAck : public SGCMessage
 {
   public:
-    SGC::State state_;
+    SGCVehicle::State state_;
     uint32_t pid_;
     uint32_t hb_seq_;
 
     HeartbeatAck() = default;
-    HeartbeatAck(SGC::State st, uint32_t pid, uint32_t hb_seq);
+    HeartbeatAck(SGCVehicle::State st, uint32_t pid, uint32_t hb_seq);
 
     void Serialize(ByteWriter& bw) const override;
     void Deserialize(ByteReader& br) override;
@@ -128,6 +128,43 @@ class KeyEncap : public SGCMessage
         os << "), ct_=" << key_encap.ct_ << "}";
         return os;
     }
+
+    void Serialize(ByteWriter& bw) const override;
+    void Deserialize(ByteReader& br) override;
+};
+
+class KeyUpd : public SGCMessage
+{
+  public:
+    uint32_t group_num_;
+    uint32_t pid_;
+    std::vector<std::vector<uint8_t>> sids_; // each corresponds to a (ct2, ct3) in ct_
+    SGC::KeyVerifier kv_;
+    SAAGKA::Ciphertext ct_;
+
+    friend ostream& operator<<(ostream& os, const KeyUpd& key_encap)
+    {
+        os << "{group_num_=" << key_encap.group_num_ << ", sids_=(\n";
+        for (int i = 0; i < key_encap.sids_.size(); i++)
+        {
+            os << "\t" << i << ":" << ::ToString(key_encap.sids_[i]) << ",\n";
+        }
+        os << "), ct_=" << key_encap.ct_ << "}";
+        return os;
+    }
+
+    void Serialize(ByteWriter& bw) const override;
+    void Deserialize(ByteReader& br) override;
+};
+
+class KeyUpdAck : public SGCMessage
+{
+  public:
+    uint32_t pid_;
+    SGC::KeyVerifier kv_;
+
+    KeyUpdAck() = default;
+    virtual ~KeyUpdAck() = default;
 
     void Serialize(ByteWriter& bw) const override;
     void Deserialize(ByteReader& br) override;

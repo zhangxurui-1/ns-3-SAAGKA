@@ -130,3 +130,19 @@ GenerateRandomBytes(uint32_t len)
     }
     return res;
 }
+
+std::string
+ToString(const std::vector<uint32_t>& vec)
+{
+    std::string res = "[";
+    for (int i = 0; i < vec.size(); i++)
+    {
+        res += std::to_string(vec[i]);
+        if (i != vec.size() - 1)
+        {
+            res += ", ";
+        }
+    }
+    res += "]";
+    return res;
+}

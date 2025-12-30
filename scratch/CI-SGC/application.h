@@ -2,7 +2,7 @@
 
 #include "crypto/agka.h"
 #include "metric.h"
-#include "sgc.h"
+#include "sgc/sgc.h"
 #include "utils.h"
 
 #include "ns3/application.h"
@@ -24,7 +24,14 @@ class RsuApplication : public ns3::Application
     static ns3::TypeId GetTypeId();
     RsuApplication();
     ~RsuApplication() override;
-    static ns3::Ptr<RsuApplication> Install(ns3::Ptr<ns3::Node> node, uint32_t port);
+    static ns3::Ptr<RsuApplication> Install(ns3::Ptr<ns3::Node> node,
+                                            uint32_t port,
+                                            ns3::Time stop_time,
+                                            ns3::Time hb_interval,
+                                            ns3::Time key_encap_interval,
+                                            ns3::Time key_upd_threshold,
+                                            uint32_t group_size,
+                                            uint32_t max_group_num);
     void SetLocalAddress(ns3::Address addr);
     void SetBroadcastAddress(ns3::Address addr);
     void SetPort(uint32_t port);
@@ -34,13 +41,15 @@ class RsuApplication : public ns3::Application
     void StopApplication() override;
     void SendHeartbeat();
     void HandleRecv(ns3::Ptr<ns3::Socket> socket);
+    void LaunchSessionKeyEncap();
 
   protected:
     ns3::Ptr<ns3::Socket> socket_;
     ns3::Address broadcast_addr_; // ip+port
     ns3::Address local_addr_;     // ip+port
     uint32_t port_;
-    ns3::Time heartbeat_interval_{ns3::Seconds(1)};
+    ns3::Time heartbeat_interval_;
+    ns3::Time session_key_encap_interval_;
     std::shared_ptr<SGC> sgc_proto_;
 };
 
@@ -50,17 +59,22 @@ class VehicleApplication : public ns3::Application
     static ns3::TypeId GetTypeId();
     VehicleApplication();
     ~VehicleApplication() override;
-    static ns3::Ptr<VehicleApplication> Install(ns3::Ptr<ns3::Node> node, uint32_t port);
+    static ns3::Ptr<VehicleApplication> Install(ns3::Ptr<ns3::Node> node,
+                                                uint32_t port,
+                                                ns3::Time stop_time,
+                                                ns3::Time key_upd_interval);
 
   private:
     void StartApplication() override;
     void StopApplication() override;
 
     void HandleRecv(ns3::Ptr<ns3::Socket> socket);
+    void LaunchSessionKeyUpd();
 
     ns3::Address local_addr_;     // ip+port
     ns3::Address broadcast_addr_; // ip+port
     uint32_t port_;
     ns3::Ptr<ns3::Socket> socket_;
     std::shared_ptr<SGC> sgc_proto_;
+    ns3::Time session_key_upd_interval_;
 };

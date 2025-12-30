@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ostream>
 enum class MsgType : uint32_t
 {
     kUnknown,
@@ -11,7 +12,53 @@ enum class MsgType : uint32_t
     kKeyEncapNotify,
     kKeyEncap,
     kKeyUpdate,
+    kKeyUpdateAck,
+
+    kMsgTypeNum,
 };
+
+inline std::ostream&
+operator<<(std::ostream& os, MsgType t)
+{
+    switch (t)
+    {
+    case MsgType::kUnknown:
+        os << "kUnknown";
+        break;
+    case MsgType::kHeartbeat:
+        os << "kHeartbeat";
+        break;
+    case MsgType::kHeartbeatAck:
+        os << "kHeartbeatAck";
+        break;
+    case MsgType::kNotifyPosition:
+        os << "kNotifyPosition";
+        break;
+    case MsgType::kJoin:
+        os << "kJoin";
+        break;
+    case MsgType::kJoinAck:
+        os << "kJoinAck";
+        break;
+    case MsgType::kKeyEncapNotify:
+        os << "kKeyEncapNotify";
+        break;
+    case MsgType::kKeyEncap:
+        os << "kKeyEncap";
+        break;
+    case MsgType::kKeyUpdate:
+        os << "kKeyUpdate";
+        break;
+    case MsgType::kKeyUpdateAck:
+        os << "kKeyUpdateAck";
+        break;
+    default:
+        os << "Unknown MsgType";
+        break;
+    }
+
+    return os;
+}
 
 class Header
 {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../crypto/agka.h"
-#include "../sgc.h"
+#include "../sgc/sgc.h"
 #include "../utils.h"
 #include "header.h"
 #include "pairing_1.h"
@@ -133,18 +133,6 @@ struct ByteReadTrait<Big>
     }
 };
 
-using TimePoint = std::chrono::time_point<std::chrono::steady_clock>;
-
-template <>
-struct ByteReadTrait<TimePoint>
-{
-    static TimePoint read(ByteReader& r)
-    {
-        auto t = r.read<int64_t>();
-        return TimePoint(std::chrono::microseconds(t));
-    }
-};
-
 template <>
 struct ByteReadTrait<SAAGKA::KAMaterial>
 {
@@ -217,7 +205,7 @@ struct ByteReadTrait<SGC::KeyVerifier>
     {
         SGC::KeyVerifier kv;
         kv.version_ = r.read<uint32_t>();
-        kv.timestamp_ = r.read<TimePoint>();
+        kv.timestamp_ = r.read<ns3::Time>();
 
         if (kv.version_ > 0)
         {
@@ -235,13 +223,13 @@ struct ByteReadTrait<SGC::GroupSessionInfo>
     static SGC::GroupSessionInfo read(ByteReader& r)
     {
         SGC::GroupSessionInfo gsi;
-        auto total_len = r.read<uint32_t>();
+        r.read<uint32_t>(); // total_len
 
         gsi.n_member_ = r.read<uint32_t>();
 
         const uint8_t* sid_p = r.readBytes(SGC::SidLength);
         gsi.sid_.insert(gsi.sid_.end(), sid_p, sid_p + SGC::SidLength);
-        gsi.expiry_time_ = r.read<TimePoint>();
+        gsi.expiry_time_ = r.read<ns3::Time>();
 
         gsi.size_param_ = ParseSizeParamFromSid(gsi.sid_);
         auto scale = SAAGKA::GetPublicParameter()->matrices[gsi.size_param_].size();
@@ -252,6 +240,16 @@ struct ByteReadTrait<SGC::GroupSessionInfo>
         gsi.ek_ = r.read<SAAGKA::EncryptionKey>();
 
         return gsi;
+    }
+};
+
+template <>
+struct ByteReadTrait<ns3::Time>
+{
+    static ns3::Time read(ByteReader& r)
+    {
+        auto t = r.read<int64_t>();
+        return ns3::NanoSeconds(t);
     }
 };
 

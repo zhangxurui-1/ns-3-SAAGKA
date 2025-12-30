@@ -8,3 +8,7 @@
 !CMakeLists.txt
 
 !CI-SGC/
+CI-SGC/log/
+CI-SGC/tmplog/
+CI-SGC/tools/aggregate
+CI-SGC/tools/trim

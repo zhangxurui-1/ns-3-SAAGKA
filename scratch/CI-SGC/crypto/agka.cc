@@ -6,6 +6,7 @@
 #include "utils.h"
 
 #include "ns3/singleton.h"
+#include "ns3/timer.h"
 
 #include <algorithm>
 #include <big.h>
@@ -14,6 +15,7 @@
 #include <ecn.h>
 #include <miracl.h>
 #include <pairing_1.h>
+#include <thread>
 #include <vector>
 #include <zzn.h>
 
@@ -160,11 +162,11 @@ SAAGKA::AsymKeyDerive(const std::vector<uint8_t>& sid,
 }
 
 SAAGKA::Matrix<G1>
-SAAGKA::GenOneMatrix(int size_param)
+SAAGKA::GenOneMatrix(int size)
 {
-    SAAGKA::Matrix<G1> m(size_param, std::vector<G1>(size_param + 3));
+    SAAGKA::Matrix<G1> m(size, std::vector<G1>(size + 3));
     auto pfc = pp_->pfc;
-    for (int i = 0; i < size_param; ++i)
+    for (int i = 0; i < size; ++i)
     {
         Big x1, x2, w;
         pfc->random(x1);
@@ -175,7 +177,7 @@ SAAGKA::GenOneMatrix(int size_param)
         G1 y2 = pfc->mult(pp_->generator_1, x2);
         G1 u = pfc->mult(pp_->generator_1, w);
 
-        for (; j < size_param; ++j)
+        for (; j < size; ++j)
         {
             if (i == j)
             {
@@ -194,7 +196,7 @@ SAAGKA::GenOneMatrix(int size_param)
 }
 
 void
-SAAGKA::Setup(int security_level, int max_group_size)
+SAAGKA::Setup(int security_level, int max_group_size, int size_step)
 {
     if (is_setup_)
     {
@@ -217,12 +219,16 @@ SAAGKA::Setup(int security_level, int max_group_size)
     }
 
     pp_->matrices = std::vector<Matrix<G1>>();
-    int size_param = 10;
+    int size = 0;
+    int i = 0;
     do
     {
-        pp_->matrices.push_back(GenOneMatrix(size_param));
-        size_param += 10;
-    } while (size_param < max_group_size);
+        size += size_step;
+        pp_->matrices.push_back(GenOneMatrix(size));
+        INFO("Matrix A[" << i << "] has been generated, size=" << size << " * " << size + 3);
+
+        ++i;
+    } while (size < max_group_size);
 
     is_setup_ = true;
 }
@@ -238,7 +244,8 @@ SAAGKA::GetPublicParameter()
 {
     if (!is_setup_)
     {
-        return nullptr;
+        WARN("SAAGKA::GetPublicParameter, public parameter not setup, wait for 1 second");
+        this_thread::sleep_for(chrono::seconds(1));
     }
     return pp_;
 }

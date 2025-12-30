@@ -49,7 +49,7 @@ Heartbeat::Deserialize(ByteReader& br)
 }
 
 // HeartbeatAck
-HeartbeatAck::HeartbeatAck(SGC::State st, uint32_t pid, uint32_t hb_seq)
+HeartbeatAck::HeartbeatAck(SGCVehicle::State st, uint32_t pid, uint32_t hb_seq)
     : state_(st),
       pid_(pid),
       hb_seq_(hb_seq)
@@ -75,7 +75,7 @@ void
 HeartbeatAck::Deserialize(ByteReader& br)
 {
     auto state_32 = br.read<uint32_t>();
-    state_ = static_cast<SGC::State>(state_32);
+    state_ = static_cast<SGCVehicle::State>(state_32);
     pid_ = br.read<uint32_t>();
     hb_seq_ = br.read<uint32_t>();
 }
@@ -224,4 +224,62 @@ KeyEncap::Deserialize(ByteReader& br)
         sids_.emplace_back(sid_p, sid_p + SGC::SidLength);
     }
     ct_ = br.read<SAAGKA::Ciphertext>();
+}
+
+// KeyUpd
+void
+KeyUpd::Serialize(ByteWriter& bw) const
+{
+    Header header(MsgType::kKeyUpdate);
+    bw.write(header);
+    size_t payload_start = bw.position();
+
+    bw.write(group_num_);
+    bw.write(pid_);
+    bw.write(kv_);
+
+    for (size_t i = 0; i < sids_.size(); ++i)
+    {
+        bw.write(sids_[i]);
+    }
+    bw.write(ct_);
+
+    header.payload_len_ = bw.position() - payload_start;
+    bw.patch_u32(payload_start - sizeof(uint32_t), header.payload_len_);
+}
+
+void
+KeyUpd::Deserialize(ByteReader& br)
+{
+    group_num_ = br.read<uint32_t>();
+    pid_ = br.read<uint32_t>();
+    kv_ = br.read<SGC::KeyVerifier>();
+    for (size_t i = 0; i < group_num_; ++i)
+    {
+        const uint8_t* sid_p = br.readBytes(SGC::SidLength);
+        sids_.emplace_back(sid_p, sid_p + SGC::SidLength);
+    }
+    ct_ = br.read<SAAGKA::Ciphertext>();
+}
+
+// KeyUpdAck
+void
+KeyUpdAck::Serialize(ByteWriter& bw) const
+{
+    Header header(MsgType::kKeyUpdateAck);
+    bw.write(header);
+    size_t payload_start = bw.position();
+
+    bw.write(pid_);
+    bw.write(kv_);
+
+    header.payload_len_ = bw.position() - payload_start;
+    bw.patch_u32(payload_start - sizeof(uint32_t), header.payload_len_);
+}
+
+void
+KeyUpdAck::Deserialize(ByteReader& br)
+{
+    pid_ = br.read<uint32_t>();
+    kv_ = br.read<SGC::KeyVerifier>();
 }

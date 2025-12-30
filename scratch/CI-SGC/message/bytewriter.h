@@ -1,5 +1,7 @@
+#pragma once
+
 #include "../crypto/agka.h"
-#include "../sgc.h"
+#include "../sgc/sgc.h"
 #include "big.h"
 #include "header.h"
 #include "pairing_1.h"
@@ -90,6 +92,8 @@ class ByteWriter
     void write(const SGC::GroupSessionInfo& gsi);
 
     void write(const std::string& str);
+
+    void write(ns3::Time t);
 
     template <typename T>
     auto write(const T& obj) -> decltype(obj.Serialize(), void())

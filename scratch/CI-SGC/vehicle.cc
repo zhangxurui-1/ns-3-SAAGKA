@@ -2,6 +2,7 @@
 
 #include "utils.h"
 
+#include <cstdint>
 #include <random>
 
 Vehicle::Vehicle()
@@ -26,13 +27,15 @@ Vehicle::GetDirection() const
 }
 
 ns3::NodeContainer
-CreateVehicleNodes(int nVehicle)
+CreateVehicleNodes(int nVehicle, int initPosMin, int initPosMax, int maxVelocity)
 {
     static std::random_device rd;
     static std::mt19937 gen(rd());
-    static std::uniform_real_distribution<double> dist_pos(0.0, 100.0);
-    static std::uniform_int_distribution<int> dist_dir(0, 4);
-    static std::uniform_real_distribution<double> dist_velocity(5, 30.0);
+    static std::uniform_real_distribution<double> dist_pos(static_cast<double>(initPosMin),
+                                                           static_cast<double>(initPosMax));
+    static std::uniform_int_distribution<int> dist_dir(0, 3);
+    static std::uniform_real_distribution<double> dist_velocity(1,
+                                                                static_cast<double>(maxVelocity));
 
     ns3::Ptr<ns3::ListPositionAllocator> pa = ns3::CreateObject<ns3::ListPositionAllocator>();
 
@@ -42,22 +45,29 @@ CreateVehicleNodes(int nVehicle)
         ns3::Ptr<Vehicle> v = ns3::CreateObject<Vehicle>();
         auto dir = static_cast<Direction>(dist_dir(gen));
         v->SetDirection(dir);
+        ns3::Vector pos(0.0, 0.0, 0.0);
         if (dir == NORTH)
         {
-            pa->Add(ns3::Vector(0.0, -dist_pos(gen), 0.0));
+            pos.y = -dist_pos(gen);
+            pa->Add(pos);
         }
         else if (dir == SOUTH)
         {
-            pa->Add(ns3::Vector(0.0, dist_pos(gen), 0.0));
+            pos.y = dist_pos(gen);
+            pa->Add(pos);
         }
         else if (dir == EAST)
         {
-            pa->Add(ns3::Vector(-dist_pos(gen), 0.0, 0.0));
+            pos.x = -dist_pos(gen);
+            pa->Add(pos);
         }
         else if (dir == WEST)
         {
-            pa->Add(ns3::Vector(dist_pos(gen), 0.0, 0.0));
+            pos.x = dist_pos(gen);
+            pa->Add(pos);
         }
+
+        INFO("Vehicle-" << i << " direction: " << dir << " position: " << pos);
 
         vehicles.Add(v);
     }
@@ -96,6 +106,10 @@ CreateVehicleNodes(int nVehicle)
             v->GetObject<ns3::ConstantVelocityMobilityModel>()->SetVelocity(
                 ns3::Vector(-dist_velocity(gen), 0.0, 0.0));
         }
+        INFO("Vehicle-" << i << " position: "
+                        << v->GetObject<ns3::ConstantVelocityMobilityModel>()->GetPosition());
+        INFO("Vehicle-" << i << " velocity: "
+                        << v->GetObject<ns3::ConstantVelocityMobilityModel>()->GetVelocity());
     }
     ns3::InternetStackHelper stack;
     stack.Install(vehicles);

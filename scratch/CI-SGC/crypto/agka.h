@@ -157,7 +157,7 @@ class SAAGKA
     static Big HashAnyToBig(const std::vector<uint8_t>& m, const PublicKey& pk, const G1& elem);
     static std::vector<uint8_t> HashGTToBytes(const GT& gt, uint32_t length);
 
-    static void Setup(int security_level, int max_group_size);
+    static void Setup(int security_level, int max_group_size, int size_step);
     static std::shared_ptr<PublicParameter> GetPublicParameter();
     static bool IsSetup();
     static bool CheckValid(const KAMaterial& kam);

@@ -2,3 +2,8 @@
 
 # Include specific files that should be tracked by Git
 !.gitignore
+!MIRACL/build/*.sh
+!MIRACL/include/mirdef.h
+!MIRACL/miracl.lst
+!MIRACL/MIRACL.cmake
+!MIRACL/source/curve/pairing/*.sh

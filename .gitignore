@@ -53,3 +53,5 @@ vcpkg/
 
 compile_commands.json
 settings.json
+
+contrib/MIRACL/build/

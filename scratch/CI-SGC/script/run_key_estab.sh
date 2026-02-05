@@ -3,7 +3,7 @@
 set -euo pipefail
 
 BIN=/Users/zxr/workspace/ns-3-dev/build/scratch/CI-SGC/ns3-dev-ci-sgc-simulator-default
-TOOLS_BIN=/Users/zxr/workspace/ns-3-dev/scratch/CI-SGC/tools/
+TOOLS_BIN=/Users/zxr/workspace/ns-3-dev/scratch/CI-SGC/tools
 TRIM_BIN=${TOOLS_BIN}/trim
 AGG_BIN=${TOOLS_BIN}/aggregate
 OUT_DIR=/Users/zxr/workspace/ns-3-dev/scratch/CI-SGC/log
